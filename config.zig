@@ -46,6 +46,50 @@ pub const Config = struct {
     json: bool = false, // --json (machine-readable summary)
 };
 
+pub const Flag = enum {
+    forever,
+    help,
+    cores,
+    progress,
+    verbose,
+    json,
+    threads,
+    batch,
+    loop_ms,
+    memory,
+};
+
+const FlagDef = struct { tag: Flag, strs: [2][]const u8 };
+
+const flag_defs = [_]FlagDef{
+    .{ .tag = .forever, .strs = .{ "-f", "--forever" } },
+    .{ .tag = .help, .strs = .{ "-h", "--help" } },
+    .{ .tag = .cores, .strs = .{ "-c", "--cores" } },
+    .{ .tag = .progress, .strs = .{ "-p", "--progress" } },
+    .{ .tag = .verbose, .strs = .{ "-v", "--verbose" } },
+    .{ .tag = .json, .strs = .{ "--json", "--json" } }, // long-only: repeated
+    .{ .tag = .threads, .strs = .{ "-t", "--threads" } },
+    .{ .tag = .batch, .strs = .{ "-b", "--batch" } },
+    .{ .tag = .loop_ms, .strs = .{ "-l", "--loop-ms" } },
+    .{ .tag = .memory, .strs = .{ "-m", "--stress-memory" } },
+};
+
+fn lookupFlag(s: []const u8) ?Flag {
+    inline for (flag_defs) |def| {
+        if (std.mem.eql(u8, s, def.strs[0]) or std.mem.eql(u8, s, def.strs[1])) {
+            return def.tag;
+        }
+    }
+    return null;
+}
+
+/// Consumes the token after flag `i` (its value). Null when argv is exhausted.
+fn nextValue(argv: []const [:0]const u8, i: *usize) ?[:0]const u8 {
+    i.* += 1;
+    if (i.* >= argv.len) return null;
+    return argv[i.*];
+}
+
 pub fn parseSeconds(s: []const u8) ?f64 {
     const f = std.fmt.parseFloat(f64, s) catch return null;
     if (!std.math.isFinite(f) or f < min_seconds or f > max_seconds) return null;
@@ -74,47 +118,45 @@ pub fn parseConfig(argv: []const [:0]const u8) ?Config {
         if (!only_positional and std.mem.eql(u8, a, "--")) {
             only_positional = true;
         } else if (!only_positional and a.len > 1 and a[0] == '-') {
-            const long_only = std.mem.eql(u8, a, "--forever");
-            if (std.mem.eql(u8, a, "-f") or long_only) {
-                cfg.forever = true;
-            } else if (std.mem.eql(u8, a, "-h") or std.mem.eql(u8, a, "--help")) {
-                return null; // triggers usage; distinct from runtime errors
-            } else if (std.mem.eql(u8, a, "-c") or std.mem.eql(u8, a, "--cores")) {
-                cfg.physical = true;
-                // Optional value: consume the next token only if it parses as
-                // a plain count, so `-c 4` = 4 workers on physical cores while
-                // `-c 2.5` still leaves 2.5 as the positional seconds.
-                if (i + 1 < argv.len and argv[i + 1].len > 0 and argv[i + 1][0] != '-') {
-                    if (parseUsize(argv[i + 1])) |n| {
-                        if (n > max_threads) return null;
-                        cfg.threads = n;
-                        i += 1;
+            const flag = lookupFlag(a) orelse return null;
+            switch (flag) {
+                .forever => cfg.forever = true,
+                .help => return null, // triggers usage; distinct from runtime errors
+                .progress => cfg.progress = true,
+                .verbose => cfg.verbose = true,
+                .json => cfg.json = true,
+                .cores => {
+                    cfg.physical = true;
+                    // Optional value: consume the next token only if it parses
+                    // as a plain count, so `-c 4` = 4 workers on physical
+                    // cores while `-c 2.5` still leaves 2.5 as the positional
+                    // seconds.
+                    if (i + 1 < argv.len and argv[i + 1].len > 0 and argv[i + 1][0] != '-') {
+                        if (parseUsize(argv[i + 1])) |n| {
+                            if (n > max_threads) return null;
+                            cfg.threads = n;
+                            i += 1;
+                        }
                     }
-                }
-            } else if (std.mem.eql(u8, a, "-p") or std.mem.eql(u8, a, "--progress")) {
-                cfg.progress = true;
-            } else if (std.mem.eql(u8, a, "-v") or std.mem.eql(u8, a, "--verbose")) {
-                cfg.verbose = true;
-            } else if (std.mem.eql(u8, a, "--json")) {
-                cfg.json = true;
-            } else {
-                // Remaining flags consume one value token.
-                i += 1;
-                if (i >= argv.len) return null;
-                const v = argv[i];
-                if (std.mem.eql(u8, a, "-t") or std.mem.eql(u8, a, "--threads")) {
+                },
+                .threads => {
+                    const v = nextValue(argv, &i) orelse return null;
                     cfg.threads = parseUsize(v) orelse return null;
                     if (cfg.threads.? > max_threads) return null;
-                } else if (std.mem.eql(u8, a, "-b") or std.mem.eql(u8, a, "--batch")) {
+                },
+                .batch => {
+                    const v = nextValue(argv, &i) orelse return null;
                     cfg.batch_iters = parseU64Limit(v, max_batch) orelse return null;
                     if (cfg.batch_iters < min_batch_iters) cfg.small_batch = true;
-                } else if (std.mem.eql(u8, a, "-l") or std.mem.eql(u8, a, "--loop-ms")) {
+                },
+                .loop_ms => {
+                    const v = nextValue(argv, &i) orelse return null;
                     cfg.loop_ms = parseU64Limit(v, 60 * 60 * 1000) orelse return null;
-                } else if (std.mem.eql(u8, a, "-m") or std.mem.eql(u8, a, "--stress-memory")) {
+                },
+                .memory => {
+                    const v = nextValue(argv, &i) orelse return null;
                     cfg.memory_mib = parseU64Limit(v, max_mem_mib) orelse return null;
-                } else {
-                    return null;
-                }
+                },
             }
         } else {
             // Positional: seconds. Flags may appear on either side of it.
@@ -261,6 +303,15 @@ test "parseConfig: flags, positionals, exclusions" {
     const r17 = parseConfig(&argv17) orelse return error.TestUnexpectedResult;
     try testing.expectEqual(@as(?f64, null), r17.seconds);
     try testing.expect(!r17.forever); // main supplies the forever default
+
+    // --json long-only entry works via table (repeat-slot sanity)
+    const argv18 = [_][:0]const u8{"--json"};
+    const r18 = parseConfig(&argv18) orelse return error.TestUnexpectedResult;
+    try testing.expect(r18.json);
+
+    // unknown long flag still rejected
+    const argv19 = [_][:0]const u8{"--bogus"};
+    try testing.expectEqual(@as(?Config, null), parseConfig(&argv19));
 
     // Zero/huge thread counts rejected
     const argv9 = [_][:0]const u8{ "-t", "0" };
