@@ -1,0 +1,18 @@
+.{
+    .name = .ztress,
+    .version = "0.0.0",
+    .fingerprint = 0x551da2641c6c9e52,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "ztress.zig",
+        "config.zig",
+        "cores.zig",
+        "report.zig",
+        "signal.zig",
+        "workers.zig",
+        "README.md",
+    },
+}

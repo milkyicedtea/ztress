@@ -7,15 +7,24 @@ Spawns one spinning thread per logical CPU core by default and pegs every core t
 ## Usage
 
 ```sh
-zig run ztress.zig            # run forever (Ctrl-C to stop)
-zig run ztress.zig 10         # run for 10 seconds
-zig run ztress.zig 2.5        # fractional seconds work too
-./ztress 5                    # same, on a built binary
+zig build run                 # run forever (Ctrl-C to stop)
+zig build run -- 10           # run for 10 seconds
+zig build run -- 2.5          # fractional seconds work too
+./zig-out/bin/ztress 5        # same, on an installed binary
 ```
 
 ```sh
-zig build-exe ztress.zig -O ReleaseFast -femit-bin=ztress
-./ztress 5
+zig build                     # Debug build -> zig-out/bin/ztress
+zig build -Doptimize=fast     # release build, stripped
+./zig-out/bin/ztress 5
+```
+
+Release builds cross-compile from any host. `-Dlibc=true` is what links glibc/musl; without it Zig emits a libc-free static ELF either way. `-Dstrip` defaults to on for anything but Debug, so pass `-Dstrip=false` to keep symbols.
+
+```sh
+zig build -Doptimize=fast -Dlibc=true -Dtarget=x86_64-linux-gnu.2.17   # glibc, GLIBC_2.17 floor
+zig build -Doptimize=fast -Dlibc=true -Dtarget=x86_64-linux-musl       # static musl
+zig build -Doptimize=fast -Dtarget=aarch64-macos                       # libSystem
 ```
 
 Timed mode exits on its own and prints a batch/throughput summary. In forever mode, Ctrl-C stops the workers and still prints the summary before exiting with code 130.
@@ -64,7 +73,7 @@ With `-m N`, each worker instead allocates N MiB (page-backed, touched to commit
 ## Tests
 
 ```sh
-zig test ztress.zig
+zig build test
 ```
 
 Covers the arg parser (range clamps, the `1e300`/`0` regressions, flag ordering, mutual exclusions) and physical-core detection parsing. Module tests are aggregated from `ztress.zig`; `config.zig` holds the parser tests, `cores.zig` the cpuinfo parsing tests.
