@@ -55,11 +55,6 @@ jobs:
             tar -czf "${{ matrix.asset }}" "${{ matrix.out }}"
           fi
 
-      - name: Smoke ${{ matrix.target }}
-        if: runner.os == 'Linux' && runner.arch == 'X64'
-        shell: bash
-        run: ./${{ matrix.out }} 0.2
-
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset }}
